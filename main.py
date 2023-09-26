@@ -21,13 +21,7 @@ if __name__ == '__main__':
     actions_name = env.unwrapped.get_action_meanings()
     print('Available actions: \n', actions_name)
     
-    useGPU = 0
-    if torch.cuda.is_available():
-        dev = "cuda:0"
-        useGPU = 1
-    else:
-        dev = "cpu"
-        useGPU = 0
+    dev = "cpu"
 
     device = torch.device(dev)
     print('Device: ', device)
@@ -83,7 +77,7 @@ if __name__ == '__main__':
     lock = mp.Lock()
 
     #n_processes = mp.cpu_count() 
-    n_processes = 4
+    n_processes = 16
     print('n_processes: ', n_processes)
     
     #p = mp.Process(target=test, args=(shared_ac, counter, env, params['max_steps'], layers_, actions_name, lock, device))
