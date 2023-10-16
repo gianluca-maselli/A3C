@@ -8,12 +8,12 @@ def compute_log_prob_actions(logits):
     action_pd = torch.distributions.Categorical(probs=prob_v)
     action = action_pd.sample().detach()
     action_log_probs = log_prob_v.gather(1, action.unsqueeze(1)).squeeze()
-    entropy = -(prob_v * log_prob_v).sum(dim=1)
+    entropy = (prob_v * log_prob_v).sum(dim=1)
 
     return action.numpy()[0],action_log_probs, entropy
 
 
-def rollout(rollout_size, model, hx, cx, frame_queue, env, current_state, episode_length, max_steps, steps_array, values, log_probs, rewards, masks, actions, entropies, actions_name, n_frames, device, tot_rew):
+def rollout(rollout_size, model, frame_queue, env, current_state, episode_length, max_steps, steps_array, values, log_probs, rewards, masks, entropies, actions_name, n_frames, device, tot_rew):
     
     for i in range(rollout_size):
         episode_length +=1
@@ -22,7 +22,7 @@ def rollout(rollout_size, model, hx, cx, frame_queue, env, current_state, episod
         #print('current_state', current_state.shape)
 
         #compute logits, values and hidden and cell states from the current state
-        logits, value, (hx,cx) = model((current_state, (hx,cx)))
+        logits, value = model(current_state)
         #print('logits', logits.shape)
         #print('values', values.shape)
 
@@ -45,10 +45,8 @@ def rollout(rollout_size, model, hx, cx, frame_queue, env, current_state, episod
         
         values.append(value)
         log_probs.append(action_log_probs)
-        #log_probs.append(logits)
         rewards.append(reward)
         masks.append(done)
-        actions.append(action)
         entropies.append(entropy)
 
         current_state = next_state
@@ -63,41 +61,42 @@ def rollout(rollout_size, model, hx, cx, frame_queue, env, current_state, episod
             current_state = input_frames
             episode_length = 0
             break
-        #bootstrapping
+    
+    #bootstrapping
     next_value = 0
     if not done:
-        with torch.no_grad():
-            final_state = next_state.unsqueeze(0).permute(0,3,1,2).to(device)
-            _, f_value, _ = model((final_state, (hx,cx)))
+        #with torch.no_grad():
+        final_state = current_state.unsqueeze(0).permute(0,3,1,2).to(device)
+        _, f_value = model(final_state)
             #in the case the game is not done we bootstrap
-            next_value = f_value.detach()
+        next_value = f_value.detach()
     #add the last reward value to the array
     values.append(next_value)
+    
     steps_array.append((rewards, masks, log_probs, values))
 
     return steps_array, entropies, entropy, episode_length, frame_queue, current_state, done, tot_rew
 
 def GAE(steps, gamma, lambd, device):
        
-    '''
-    for j in reversed(range(len(rewards))):
-        R = gamma * R + rewards[j]
-        advantage = R - values[j]
-        advs[j] = advantage
-        #generalzied advantage estimation
-        td_error = rewards[j] + gamma * values[j + 1] * (1-masks[j]) - values[j]
-        #gae = gae * gamma * lambd * (1-masks[j]) + td_error
-        gae = gae * gamma * lambd * (1-masks[j]) + td_error
-        gaes[j] = gae
-    '''
-     #loop in reverse mode excluding the last element (i.e. next value)
+    #loop in reverse mode excluding the last element (i.e. next value)
     rewards, dones, _, values = steps[0]
     
-    returns = torch.zeros(len(rewards),1, device=device)
+    advantages = torch.zeros(len(rewards),1, device=device)
     gaes = torch.zeros(len(rewards),1, device=device)
     
     R = values[-1]
     gae = 0.0
+    
+ 
+    for j in reversed(range(len(rewards))):
+        R = rewards[j] + R * gamma
+        advantages[j] = R - values[j]
+        td_error = rewards[j] + gamma * values[j+1] - values[j]
+        gae = gae * gamma * lambd  + td_error
+        gaes[j] = gae
+        
+    '''
     
     for j in reversed(range(len(rewards))):
         R = rewards[j] + R * gamma * (1-dones[j])
@@ -105,71 +104,63 @@ def GAE(steps, gamma, lambd, device):
         td_error = rewards[j] + gamma * values[j+1] * (1-dones[j]) - values[j]
         gae = gae * gamma * lambd *  (1-dones[j]) + td_error
         gaes[j] = gae
-    
+    '''
     #print('returns size: ', returns.shape) 
     #print('gae size: ', gaes.shape) 
     
-    return returns, gaes
-
-    '''
-    for j in reversed(range(len(values)-1)):
-        #compute expected returns
-        R = rewards[j] + R * gamma * (1-masks[j])
-        returns[j] = R
-        #extract next value recurrently
-        next_value = values[j + 1]
-        vals[j] =  values[j]
-        #compute td error
-        td_error = rewards[j] + gamma * next_value * (1-masks[j]) - values[j]
-        #GAE
-        gae = gae * gamma * lambd * (1-masks[j]) + td_error
-        gaes[j] = gae
-    
-    assert len(returns) == len(values)-1
-    
-    '''
-    #return returns, gaes, vals
+    return advantages, gaes
 
 
 
 def ensure_shared_grads(local_model, shared_model):
     for param, shared_param in zip(local_model.parameters(),shared_model.parameters()):
-        #if shared_param.grad is not None:
-        #    return
-        shared_param._grad = param.grad
-    #print('Grads updating....')
+        if shared_param.grad is not None:
+            return
+        shared_param.grad = param.grad #.clone()
+    print('Grads updating....')
     
 
 
 
-def upgrade_parameters(returns, gaes, steps, val_coeff, entropies, entropy_coef):
+def upgrade_parameters(advantages, gaes, steps, val_coeff, entropies, entropy_coef):
     
     
-    policy_loss = 0
-    value_loss = 0
+    #policy_loss = torch.zeros(returns.shape[0],1)
+    #policy_loss = torch.zeros(1,1)
+    #value_loss = torch.zeros(returns.shape[0],1)
+    #value_loss = torch.zeros(1,1)
+    #entropy_loss = torch.zeros(returns.shape[0],1)
+    
+    _, _, log_probs, _ = steps[0]
+    
     '''
-    #critic loss
-    #value_loss = advantages.pow(2).mean()
-    #value_loss = advantages.pow(2).sum()
-    value_loss = F.mse_loss(values, returns)
-    #policy loss
-    a_log_probs = torch.stack(action_log_probs).unsqueeze(1)
-
-    #policy_loss = (-a_log_probs * gaes.detach()).mean() - entropy_coef * torch.tensor(entropies).mean()
-    policy_loss = (-a_log_probs * gaes.detach()).mean() + entropy_coef * torch.tensor(entropies).mean()
+    for i in range(returns.shape[0]):
+        #policy_loss = policy_loss - log_probs[i] * gaes[i].detach() + entropy_coef * entropies[i]
+        policy_loss[i] = -log_probs[i] * gaes[i].detach() + entropy_coef * entropies[i]
+        entropy_loss[i] = entropies[i]
+        #value_loss = value_loss + 0.5 * (returns[i]- values[i]).pow(2)
+        value_loss[i] = 0.5 * (returns[i] - values[i]).pow(2)
+    '''
     #overall loss
-    a3c_loss = policy_loss + val_coeff * value_loss
-    '''
-    _, _, log_probs, values = steps[0]
+    #policy_loss = policy_loss.sum()
+    #value_loss = value_loss.sum()
+    #entropy_loss = entropy_loss.mean()
     
+    policy_loss = (- torch.tensor(log_probs) * gaes.detach()).mean() 
+    value_loss = (torch.mul(advantages.pow(2), 0.5)).mean()
+    entropy_loss = torch.mul(torch.tensor(entropies), entropy_coef).mean()
+    
+    a3c_loss = policy_loss + val_coeff * value_loss + entropy_loss
+     
+    '''
     for i in range(returns.shape[0]):
         policy_loss = policy_loss - log_probs[i] * gaes[i].detach() - entropy_coef * entropies[i]
-        #value_loss = value_loss + 0.5 * (returns[i]- values[i]).pow(2)
-        value_loss = value_loss + (returns[i]- values[i]).pow(2)
+        value_loss = value_loss + 0.5 * (returns[i]- values[i]).pow(2)
+        #value_loss = value_loss + (returns[i]- values[i]).pow(2)
+    '''
         
-    a3c_loss = policy_loss + val_coeff * value_loss
 
-    return a3c_loss, value_loss, policy_loss
+    return a3c_loss, value_loss, policy_loss, entropy_loss
 
 
 def record(global_ep, global_ep_r, ep_r, res_queue, name):
@@ -178,15 +169,60 @@ def record(global_ep, global_ep_r, ep_r, res_queue, name):
         global_ep.value += 1
     
     with global_ep_r.get_lock():
-        if global_ep_r.value == 0.:
-            global_ep_r.value = ep_r
-        else:
+        #if global_ep_r.value == 0.:
+        #    global_ep_r.value = ep_r
+        #else:
             #global_ep_r.value = global_ep_r.value * 0.99 + ep_r * 0.01
-            global_ep_r.value  = ep_r
+        global_ep_r.value  = ep_r
     
-    res_queue.put(global_ep_r.value)
+    #res_queue.put(global_ep_r.value)
     print(
         "Process: ", name,
         "Ep:", global_ep.value,
         "| Ep_r: %.0f" % global_ep_r.value,
     )
+    
+def print_avg(scores, p_i, tot_rew, lock, avg_ep, params, mean_reward, flag_finish, array_avgs):
+    print('\n')
+    with lock:
+        scores.append([p_i, tot_rew])
+        print('scores', scores)
+        all_found = 0
+        #check if all process present
+        for p_k in range(0, params['n_process']):
+            ff = False
+            for s_k in scores:
+                if p_k == s_k[0] and ff==False:
+                    all_found+=1
+                    ff = True
+                
+        if all_found == params['n_process']:
+            avg = 0
+            for p_j in range(0, params['n_process']):
+                idx = 0
+                found = False
+                for s_i in scores:
+                    if p_j == s_i[0] and found==False:
+                        avg += s_i[1]
+                        found=True
+                        scores.pop(idx)
+                    idx+=1
+                    
+            with avg_ep.get_lock():
+                avg_ep.value +=1
+                print('\n')
+                print('------------ AVG-------------')
+                print(f"Ep: {avg_ep.value} | AVG: {avg/params['n_process']}")
+                print('-----------------------------')
+                array_avgs.append(avg/params['n_process'])
+                
+                if avg/params['n_process'] >= mean_reward:
+                    flag_finish = True
+                    print('------------------------')
+                    print('GAME FINISHED')
+                    print('------------------------')
+        else:
+            print('Not enough process completed to compute AVG...')
+            flag_finish = False
+        
+        return flag_finish, array_avgs

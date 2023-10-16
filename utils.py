@@ -56,6 +56,22 @@ def frame_preprocessing(frame):
     x_t = np.reshape(x_t, [84, 84, 1])
     return x_t.astype(np.uint8)
 
+'''
+def frame_preprocessing(frame):
+    if frame.size == 210 * 160 * 3:
+        img = np.reshape(frame, [210, 160, 3]).astype(np.float32)
+    elif frame.size == 250 * 160 * 3:
+        img = np.reshape(frame, [250, 160, 3]).astype(np.float32)
+    else:
+        assert False, "Unknown resolution."
+    img = img[:, :, 0] * 0.299 + img[:, :, 1] * 0.587 + img[:, :, 2] * 0.114
+    frame = frame[34:34 + 160, :160]
+    frame = cv2.resize(frame, (80, 80))
+    frame = cv2.resize(frame, (42, 42))
+    frame = frame.mean(2, keepdims=True)
+
+    return frame.astype(np.float32)
+'''
 #Sample initial states by taking random number of no-ops on reset. No-op is assumed to be action 0.
 def Noop(env, actions_name, noop_max):
     _ = env.reset()
@@ -100,3 +116,13 @@ def stack_frames(stacked_frames):
     frames_stack = np.concatenate(stacked_frames, axis=-1)
     frames_stack = frames_stack.astype(np.float32) / 255.0
     return torch.tensor(frames_stack, dtype=torch.float32)
+
+def plot_avg_scores(array_avg, title):
+    scr_array = [avg for avg in array_avg]
+    scores = np.expand_dims(np.array(scr_array), axis=1)
+    plt.title(title)
+    plt.ylabel('Scores')
+    plt.xlabel('Games')
+    plt.plot(scr_array)
+    plt.yticks(np.arange(min(scores), max(scores)+1, 1.0))
+    plt.savefig('./plot_avg_scores.png')

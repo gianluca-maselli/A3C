@@ -8,19 +8,20 @@ import time
 import torch.nn.functional as F
 from IPython.display import display
 
-def test(shared_model, counter, env, max_steps, layers_, actions_name, lock, device):
-    #seed = 1
-    #torch.manual_seed(seed + p_i)
-    #env.seed(seed + p_i)
+def test(p_i, shared_model, counter, env, max_steps, layers_, actions_name, lock, device):
+    seed = 1
+    torch.manual_seed(seed + p_i)
+    env.seed(seed + p_i)
+    
     print('------ TEST PHASE -------')
     #create instance of the model
-    #model = ActorCritic(input_shape=layers_['n_frames'], layer1=layers_['hidden_dim1'], kernel_size1=layers_['kernel_size1'], stride1=layers_['stride1'], layer2=layers_['hidden_dim2'],
-    #                    kernel_size2=layers_['kernel_size2'], stride2=layers_['stride2'], layer3=layers_['hidden_dim3'], kernel_size3=layers_['kernel_size3'], stride3=layers_['stride3'],
-    #                    fc1_dim=layers_['fc1'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim'],hidden_size=layers_['hidden_size_lstm']) #.to(device)
+    model = ActorCritic(input_shape=layers_['n_frames'], layer1=layers_['hidden_dim1'], kernel_size1=layers_['kernel_size1'], stride1=layers_['stride1'], layer2=layers_['hidden_dim2'],
+                        kernel_size2=layers_['kernel_size2'], stride2=layers_['stride2'], layer3=layers_['hidden_dim3'], kernel_size3=layers_['kernel_size3'], stride3=layers_['stride3'],
+                        fc1_dim=layers_['fc1'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim']) #.to(device)
 
     # Verify that model is indeed an instance of nn.Module
     
-    shared_model.eval()
+    model.eval()
 
     queue = deque(maxlen=4)
     #reset env
@@ -40,36 +41,19 @@ def test(shared_model, counter, env, max_steps, layers_, actions_name, lock, dev
     actions = deque(maxlen=1000) #to prevent the agent from stucking
     flag_render = False
     #counter_dones = 0
-    file_save = './sM_weights.pth'
     
     #start game
     while True:
         episode_length += 1
         # Sync with the shared model
         if done:
-            #if os.path.isfile(file_save):
-            #    print(' ----- load new weights ---- ')
-            #    lock.acquire()
-            #    try:
-            #        model.load_state_dict(torch.load(file_save))
-            #    finally:
-            #        lock.release()
-                
-            #else:
-            #model.load_state_dict(shared_model.state_dict())
-            
-            cx = torch.zeros(1, 256)
-            hx = torch.zeros(1, 256)
-        
-        else:
-            cx = cx.detach()
-            hx = hx.detach()
+            model.load_state_dict(shared_model.state_dict())
 
         current_state = current_state.unsqueeze(0).permute(0,3,1,2).to(device)
         #print('current_state', current_state.shape)
         with torch.no_grad():
             #compute logits, values and hidden and cell states from the current state
-            logits, value, (hx,cx) = shared_model((current_state, (hx,cx)))
+            logits, value  = model(current_state)
         #get the most probable action
         probs = F.softmax(logits, dim=-1)
         action = probs.max(1, keepdim=True)[1].numpy()
@@ -106,7 +90,7 @@ def test(shared_model, counter, env, max_steps, layers_, actions_name, lock, dev
 
             print('\n')
             print('-------------------------------------------')
-            print(f'Game{counter.value}, Score: {tot_reward}, episode_length: {episode_length}')
+            print(f'Test Game: {counter.value}, Score: {tot_reward}, episode_length: {episode_length}')
             print('-------------------------------------------')
             print('\n')
             tot_reward = 0
@@ -116,7 +100,6 @@ def test(shared_model, counter, env, max_steps, layers_, actions_name, lock, dev
             in_state_i = env.reset()
             frame_queue = initialize_queue(queue, layers_['n_frames'], in_state_i, env, actions_name)
             next_state = stack_frames(frame_queue)
-            #time.sleep(60)       
-            return 
+            time.sleep(60)       
         
         current_state = next_state
