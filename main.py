@@ -6,12 +6,15 @@ from train import train
 import gym
 from test import test
 import os
+from torchsummary import summary
+
 
 
 if __name__ == '__main__':
+    torch.manual_seed(1)
     os.environ['OMP_NUM_THREADS'] = '1'
     os.environ['CUDA_VISIBLE_DEVICES'] = ""
-    #torch.multiprocessing.set_start_method('spawn')
+    #mp.set_start_method('spawn')
     #generate the environment
     env_name = "PongNoFrameskip-v4"
     env = gym.make(env_name)
@@ -28,7 +31,7 @@ if __name__ == '__main__':
     dev = "cpu"
     device = torch.device(dev)
     print('Device: ', device)
-    
+    print(mp.cpu_count()) 
     #AC parameters
     
     layers_ = {
@@ -70,7 +73,6 @@ if __name__ == '__main__':
     }
     
     '''
-    
     #train parameters
 
     params = {
@@ -79,29 +81,30 @@ if __name__ == '__main__':
         'lambd':1.0,
         'entropy_coef':0.01,
         'value_coeff':0.5,
-        'rollout_size':5,
+        #'rollout_size':20,
+        'rollout_size':80//mp.cpu_count(),
         'max_steps':1000000,
         'lr':0.0001,
-        'n_process': 16
+        'n_process': mp.cpu_count()
     }
     
-    #mp.set_start_method('spawn', force=True)
     
     shared_ac = ActorCritic(input_shape=layers_['n_frames'], layer1=layers_['hidden_dim1'], kernel_size1=layers_['kernel_size1'], stride1=layers_['stride1'], layer2=layers_['hidden_dim2'],
                         kernel_size2=layers_['kernel_size2'], stride2=layers_['stride2'], layer3=layers_['hidden_dim3'], kernel_size3=layers_['kernel_size3'], stride3=layers_['stride3'],
                         fc1_dim=layers_['fc1'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim']) #.to(device)
 
     shared_ac.share_memory()
+    summary(shared_ac, (4, 84, 84))
     #shared optimizer
-    #optimizer = SharedAdam(shared_ac.parameters(), lr=params['lr'])
-    optimizer = SharedRMSprop(shared_ac.parameters(), lr=params['lr'])
+    optimizer = SharedAdam(shared_ac.parameters(), lr=params['lr'])
+    #optimizer = SharedRMSprop(shared_ac.parameters(), lr=params['lr'])
     optimizer.share_memory()
 
     processes = []
 
     counter_updates = mp.Value('i', 0)
     counter_test = mp.Value('i', 0)
-    shared_ep, shared_r, res_queue = mp.Value('i', 0), mp.Value('d', 0.), mp.Queue()
+    shared_ep, shared_r = mp.Value('i', 0), mp.Value('d', 0.)
     lock = mp.Lock()
     
     avg_ep = mp.Value('i', 0)
@@ -110,10 +113,11 @@ if __name__ == '__main__':
 
     n_processes = params['n_process']
     print('n_processes: ', n_processes)
+    print('rollout size: ', params['rollout_size'])
         
-    p = mp.Process(target=test, args=(params['n_process'], shared_ac, counter_test, env, params['max_steps'], layers_, actions_name, lock, device))
-    p.start()
-    processes.append(p)
+    #p = mp.Process(target=test, args=(params['n_process'], shared_ac, counter_test, env, params['max_steps'], layers_, actions_name, lock, device))
+    #p.start()
+    #processes.append(p)
 
     for p_i in range(0, n_processes):
         p = mp.Process(target=train, args=(p_i, shared_ac, env, params, optimizer,lock, counter_updates, layers_, device, actions_name, shared_ep, shared_r, res_queue, avg_ep, scores, scores_avg))

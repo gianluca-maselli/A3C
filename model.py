@@ -62,6 +62,8 @@ class ActorCritic(torch.nn.Module):
         #out_backbone = self.conv4(out_backbone)
         #out_backbone = self.relu(out_backbone)
         out = self.flatten(out_backbone)
+        #out = out_backbone.reshape(-1,32*9*9)
+        #out = self.flatten(out_backbone)
         out = self.fc1(out)
         out = self.relu(out)
         #actor

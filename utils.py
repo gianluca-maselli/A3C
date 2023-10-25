@@ -80,7 +80,7 @@ def Noop(env, actions_name, noop_max):
     action = 0
     init_state = None
     for _ in range(noops):
-        init_state, _, done, _ = env.step(action)
+        init_state, _, done, _, _ = env.step(action)
         if done:
             init_state = env.reset()
     return init_state
@@ -101,7 +101,7 @@ def skip_frames(action,env, skip_frame=4):
     total_reward = 0.0
     done = None
     for _ in range(skip_frame):
-        n_state, reward, done, info = env.step(action)
+        n_state, reward, done, _ , info = env.step(action)
         skipped_frame.append(n_state)
         total_reward += reward
         if done:

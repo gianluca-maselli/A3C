@@ -13,9 +13,9 @@ class SharedAdam(torch.optim.Adam):
         for group in self.param_groups:
             for p in group['params']:
                 state = self.state[p]
-                state['step'] = torch.tensor(0, dtype=torch.float32)
-                state['exp_avg'] = torch.zeros_like(p.data)
-                state['exp_avg_sq'] = torch.zeros_like(p.data)
+                state['step'] = torch.zeros(1)
+                state['exp_avg'] = p.data.new().resize_as_(p.data).zero_()
+                state['exp_avg_sq'] = p.data.new().resize_as_(p.data).zero_()
                 
     
     def share_memory(self):
@@ -28,7 +28,8 @@ class SharedAdam(torch.optim.Adam):
                 
 
     #performs a single optimization step
-    '''
+'''            print('------------------------------------------------------')
+
     def step(self, closure=None):
         loss = None
         if closure is not None:
@@ -52,7 +53,7 @@ class SharedAdam(torch.optim.Adam):
                 # Decay the first and second moment running average coefficient
 
                 #exp_avg.mul_(beta1).add_(1 - beta1, grad)
-                m_ = torch.mul(exp_avg_sq, beta1)
+                m_ = torch.mul(exp_avg, beta1)
                 exp_avg = torch.add(m_, grad, alpha=(1 - beta1))
 
 
@@ -71,7 +72,9 @@ class SharedAdam(torch.optim.Adam):
                 p.data = torch.addcdiv(p.data, exp_avg, denom, value=-step_size)
 
         return loss
-        '''
+            print('------------------------------------------------------')
+
+'''
         
 class SharedRMSprop(torch.optim.RMSprop):
     """Implements RMSprop algorithm with shared states.

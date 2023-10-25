@@ -8,14 +8,14 @@ def compute_log_prob_actions(logits):
     action_pd = torch.distributions.Categorical(probs=prob_v)
     action = action_pd.sample().detach()
     action_log_probs = log_prob_v.gather(1, action.unsqueeze(1)).squeeze()
-    entropy = (prob_v * log_prob_v).sum(dim=1)
+    entropy = -(prob_v * log_prob_v).sum(dim=1)
 
-    return action.numpy()[0],action_log_probs, entropy
+    return action.numpy()[0], action_log_probs, entropy
 
 
 def rollout(rollout_size, model, frame_queue, env, current_state, episode_length, max_steps, steps_array, values, log_probs, rewards, masks, entropies, actions_name, n_frames, device, tot_rew):
     
-    for i in range(rollout_size):
+    for _ in range(rollout_size):
         episode_length +=1
         #print('current_state', current_state.shape)
         current_state = current_state.unsqueeze(0).permute(0,3,1,2).to(device)
@@ -63,7 +63,7 @@ def rollout(rollout_size, model, frame_queue, env, current_state, episode_length
             break
     
     #bootstrapping
-    next_value = 0
+    next_value = torch.zeros(1, 1)
     if not done:
         #with torch.no_grad():
         final_state = current_state.unsqueeze(0).permute(0,3,1,2).to(device)
@@ -75,40 +75,38 @@ def rollout(rollout_size, model, frame_queue, env, current_state, episode_length
     
     steps_array.append((rewards, masks, log_probs, values))
 
-    return steps_array, entropies, entropy, episode_length, frame_queue, current_state, done, tot_rew
+    return steps_array, entropies, episode_length, frame_queue, current_state, done, tot_rew
 
-def GAE(steps, gamma, lambd, device):
+def GAE(steps, gamma, lambd, device, val_coeff, entropy_coef, entropies):
        
     #loop in reverse mode excluding the last element (i.e. next value)
-    rewards, dones, _, values = steps[0]
+    rewards, dones, log_probs , values = steps[0]
     
-    advantages = torch.zeros(len(rewards),1, device=device)
-    gaes = torch.zeros(len(rewards),1, device=device)
+    advantages = torch.zeros(len(rewards),1)
+    gaes = torch.zeros(len(rewards),1)
     
     R = values[-1]
     gae = 0.0
+    policy_loss = 0
+    value_loss = 0
     
  
     for j in reversed(range(len(rewards))):
         R = rewards[j] + R * gamma
-        advantages[j] = R - values[j]
+        #advantages[j] = R - values[j]
+        value_loss = value_loss + 0.5 * (R - values[j]).pow(2)
+
         td_error = rewards[j] + gamma * values[j+1] - values[j]
         gae = gae * gamma * lambd  + td_error
-        gaes[j] = gae
         
-    '''
+        policy_loss = policy_loss - log_probs[j] * gae.detach() - entropy_coef * entropies[j]
+
+        #gaes[j] = gae
     
-    for j in reversed(range(len(rewards))):
-        R = rewards[j] + R * gamma * (1-dones[j])
-        returns[j] = R
-        td_error = rewards[j] + gamma * values[j+1] * (1-dones[j]) - values[j]
-        gae = gae * gamma * lambd *  (1-dones[j]) + td_error
-        gaes[j] = gae
-    '''
-    #print('returns size: ', returns.shape) 
-    #print('gae size: ', gaes.shape) 
+    #return advantages, gaes
+    a3c_loss = policy_loss + val_coeff * value_loss
     
-    return advantages, gaes
+    return a3c_loss, value_loss, policy_loss
 
 
 
@@ -117,7 +115,7 @@ def ensure_shared_grads(local_model, shared_model):
         if shared_param.grad is not None:
             return
         shared_param.grad = param.grad #.clone()
-    print('Grads updating....')
+    #print('Grads updating....')
     
 
 
@@ -126,31 +124,29 @@ def upgrade_parameters(advantages, gaes, steps, val_coeff, entropies, entropy_co
     
     
     #policy_loss = torch.zeros(returns.shape[0],1)
-    #policy_loss = torch.zeros(1,1)
+    policy_loss = torch.zeros(1,1)
     #value_loss = torch.zeros(returns.shape[0],1)
-    #value_loss = torch.zeros(1,1)
+    value_loss = torch.zeros(1,1)
     #entropy_loss = torch.zeros(returns.shape[0],1)
     
     _, _, log_probs, _ = steps[0]
     
-    '''
-    for i in range(returns.shape[0]):
-        #policy_loss = policy_loss - log_probs[i] * gaes[i].detach() + entropy_coef * entropies[i]
-        policy_loss[i] = -log_probs[i] * gaes[i].detach() + entropy_coef * entropies[i]
-        entropy_loss[i] = entropies[i]
-        #value_loss = value_loss + 0.5 * (returns[i]- values[i]).pow(2)
-        value_loss[i] = 0.5 * (returns[i] - values[i]).pow(2)
-    '''
+    for i in range(advantages.shape[0]):
+        policy_loss = policy_loss - log_probs[i] * gaes[i].detach() - entropy_coef * entropies[i]
+        #policy_loss[i] = -log_probs[i] * gaes[i].detach() + entropy_coef * entropies[i]
+        #entropy_loss[i] = entropies[i]
+        value_loss = value_loss + 0.5 * advantages[i].pow(2)
+        #value_loss[i] = 0.5 * (returns[i] - values[i]).pow(2)
     #overall loss
     #policy_loss = policy_loss.sum()
     #value_loss = value_loss.sum()
     #entropy_loss = entropy_loss.mean()
     
-    policy_loss = (- torch.tensor(log_probs) * gaes.detach()).mean() 
-    value_loss = (torch.mul(advantages.pow(2), 0.5)).mean()
-    entropy_loss = torch.mul(torch.tensor(entropies), entropy_coef).mean()
+    #policy_loss = (- torch.tensor(log_probs) * gaes.detach()).mean() 
+    #value_loss = (torch.mul(advantages.pow(2), 0.5)).mean()
+    #entropy_loss = torch.mul(torch.tensor(entropies), entropy_coef).mean()
     
-    a3c_loss = policy_loss + val_coeff * value_loss + entropy_loss
+    a3c_loss = policy_loss + val_coeff * value_loss
      
     '''
     for i in range(returns.shape[0]):
@@ -160,7 +156,7 @@ def upgrade_parameters(advantages, gaes, steps, val_coeff, entropies, entropy_co
     '''
         
 
-    return a3c_loss, value_loss, policy_loss, entropy_loss
+    return a3c_loss, value_loss, policy_loss
 
 
 def record(global_ep, global_ep_r, ep_r, res_queue, name):
