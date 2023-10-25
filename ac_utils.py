@@ -13,7 +13,7 @@ def compute_log_prob_actions(logits):
     return action.numpy()[0], action_log_probs, entropy
 
 
-def rollout(rollout_size, model, frame_queue, env, current_state, episode_length, max_steps, steps_array, values, log_probs, rewards, masks, entropies, actions_name, n_frames, device, tot_rew):
+def rollout(rollout_size, model, hx, cx, frame_queue, env, current_state, episode_length, max_steps, steps_array, values, log_probs, rewards, masks, entropies, actions_name, n_frames, device, tot_rew):
     
     for _ in range(rollout_size):
         episode_length +=1
@@ -22,7 +22,7 @@ def rollout(rollout_size, model, frame_queue, env, current_state, episode_length
         #print('current_state', current_state.shape)
 
         #compute logits, values and hidden and cell states from the current state
-        logits, value = model(current_state)
+        logits, value, (hx,cx) = model((current_state,(hx,cx)))
         #print('logits', logits.shape)
         #print('values', values.shape)
 
@@ -67,7 +67,7 @@ def rollout(rollout_size, model, frame_queue, env, current_state, episode_length
     if not done:
         #with torch.no_grad():
         final_state = current_state.unsqueeze(0).permute(0,3,1,2).to(device)
-        _, f_value = model(final_state)
+        _, f_value, _ = model((final_state,(hx,cx)))
             #in the case the game is not done we bootstrap
         next_value = f_value.detach()
     #add the last reward value to the array
@@ -75,7 +75,7 @@ def rollout(rollout_size, model, frame_queue, env, current_state, episode_length
     
     steps_array.append((rewards, masks, log_probs, values))
 
-    return steps_array, entropies, episode_length, frame_queue, current_state, done, tot_rew
+    return hx, cx, steps_array, entropies, episode_length, frame_queue, current_state, done, tot_rew
 
 def GAE(steps, gamma, lambd, device, val_coeff, entropy_coef, entropies):
        
@@ -87,27 +87,17 @@ def GAE(steps, gamma, lambd, device, val_coeff, entropy_coef, entropies):
     
     R = values[-1]
     gae = 0.0
-    policy_loss = 0
-    value_loss = 0
-    
- 
+     
     for j in reversed(range(len(rewards))):
         R = rewards[j] + R * gamma
-        #advantages[j] = R - values[j]
-        value_loss = value_loss + 0.5 * (R - values[j]).pow(2)
+        advantages[j] = R - values[j]
 
         td_error = rewards[j] + gamma * values[j+1] - values[j]
         gae = gae * gamma * lambd  + td_error
-        
-        policy_loss = policy_loss - log_probs[j] * gae.detach() - entropy_coef * entropies[j]
-
-        #gaes[j] = gae
+        gaes[j] = gae
     
-    #return advantages, gaes
-    a3c_loss = policy_loss + val_coeff * value_loss
+    return advantages, gaes
     
-    return a3c_loss, value_loss, policy_loss
-
 
 
 def ensure_shared_grads(local_model, shared_model):
@@ -123,9 +113,9 @@ def ensure_shared_grads(local_model, shared_model):
 def upgrade_parameters(advantages, gaes, steps, val_coeff, entropies, entropy_coef):
     
     
-    #policy_loss = torch.zeros(returns.shape[0],1)
+    #policy_loss = torch.zeros(advantages.shape[0],1)
     policy_loss = torch.zeros(1,1)
-    #value_loss = torch.zeros(returns.shape[0],1)
+    #value_loss = torch.zeros(advantages.shape[0],1)
     value_loss = torch.zeros(1,1)
     #entropy_loss = torch.zeros(returns.shape[0],1)
     
@@ -136,7 +126,7 @@ def upgrade_parameters(advantages, gaes, steps, val_coeff, entropies, entropy_co
         #policy_loss[i] = -log_probs[i] * gaes[i].detach() + entropy_coef * entropies[i]
         #entropy_loss[i] = entropies[i]
         value_loss = value_loss + 0.5 * advantages[i].pow(2)
-        #value_loss[i] = 0.5 * (returns[i] - values[i]).pow(2)
+        #value_loss[i] = 0.5 * advantages[i].pow(2)
     #overall loss
     #policy_loss = policy_loss.sum()
     #value_loss = value_loss.sum()

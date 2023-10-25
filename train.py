@@ -4,11 +4,12 @@ from utils import *
 from ac_utils import *
 from test import test
 import time
+import gym
 
-def train(p_i, shared_model, env, params, optimizer, lock, counter, layers_, device, actions_name, shared_ep, shared_r, avg_ep, scores, scores_avg):
+def train(p_i, shared_model, env_name, params, optimizer, lock, counter, layers_, device, actions_name, shared_ep, shared_r, avg_ep, scores, scores_avg):
     
     print(' ----- TRAIN PHASE -----')
-   
+    env = gym.make(env_name)
     seed = 1
     torch.manual_seed(seed + p_i)
     torch.set_num_threads(1)
@@ -17,7 +18,7 @@ def train(p_i, shared_model, env, params, optimizer, lock, counter, layers_, dev
     #create instance of the model
     model = ActorCritic(input_shape=layers_['n_frames'], layer1=layers_['hidden_dim1'], kernel_size1=layers_['kernel_size1'], stride1=layers_['stride1'], layer2=layers_['hidden_dim2'],
                         kernel_size2=layers_['kernel_size2'], stride2=layers_['stride2'], layer3=layers_['hidden_dim3'], kernel_size3=layers_['kernel_size3'], stride3=layers_['stride3'],
-                        fc1_dim=layers_['fc1'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim']) #.to(device)
+                        fc1_dim=layers_['fc1'], lstm_dim=layers_['lstm_dim'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim']) #.to(device)
 
     model.train()
     
@@ -42,6 +43,13 @@ def train(p_i, shared_model, env, params, optimizer, lock, counter, layers_, dev
         #Sync with the shared model
         model.load_state_dict(shared_model.state_dict())
         
+        if done:
+            hx = torch.zeros(1, layers_['lstm_dim'])
+            cx = torch.zeros(1, layers_['lstm_dim'])
+        else:
+            hx = hx.detach()
+            cx = cx.detach()
+        
         #empty lists
         values = []
         log_probs = []
@@ -51,22 +59,22 @@ def train(p_i, shared_model, env, params, optimizer, lock, counter, layers_, dev
         steps_array = []
         
         #rollout_step
-        steps_array, entropies, episode_length, frame_queue, current_state, done, tot_rew = rollout(params['rollout_size'], model, frame_queue, env, current_state,
+        hx, cx, steps_array, entropies, episode_length, frame_queue, current_state, done, tot_rew = rollout(params['rollout_size'], model, hx, cx, frame_queue, env, current_state,
                                                                                   episode_length, params['max_steps'], steps_array, values, log_probs, rewards, masks, entropies, actions_name, layers_['n_frames'], device, tot_rew)
         #assert len(log_probs) == len(rewards) == len(masks)
         #assert len(log_probs) == len(values)-1
 
         #compute GAE (Generalized Advantage Estimate)
-        a3c_loss, value_loss, policy_loss = GAE(steps_array, params['gamma'], params['lambd'], device, params['value_coeff'], params['entropy_coef'], entropies)
+        advantages, gaes = GAE(steps_array, params['gamma'], params['lambd'], device, params['value_coeff'], params['entropy_coef'], entropies)
         #print('advs', advs.shape)
         
         # compute losses and update parameters
-        #a3c_loss, value_loss, policy_loss = upgrade_parameters(returns, gaes, steps_array, params['value_coeff'], entropies, params['entropy_coef'])
+        a3c_loss, value_loss, policy_loss = upgrade_parameters(advantages, gaes, steps_array, params['value_coeff'], entropies, params['entropy_coef'])
         
         optimizer.zero_grad()
         a3c_loss.backward()
         #torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 40)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 50)
         ensure_shared_grads(model, shared_model)
         optimizer.step()
         

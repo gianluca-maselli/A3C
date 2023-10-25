@@ -27,7 +27,7 @@ def weights_init(m):
 
 
 class ActorCritic(torch.nn.Module):
-    def __init__(self,input_shape, layer1, kernel_size1, stride1, layer2, kernel_size2, stride2, layer3, kernel_size3, stride3, fc1_dim, out_actor_dim, out_critic_dim):
+    def __init__(self,input_shape, layer1, kernel_size1, stride1, layer2, kernel_size2, stride2, layer3, kernel_size3, stride3, fc1_dim, lstm_dim, out_actor_dim, out_critic_dim):
         super(ActorCritic, self).__init__()
         self.conv1 = torch.nn.Conv2d(in_channels=input_shape, out_channels=layer1, kernel_size=kernel_size1, stride=stride1)
         self.conv2 = torch.nn.Conv2d(in_channels=layer1, out_channels=layer2, kernel_size=kernel_size2, stride=stride2)
@@ -37,22 +37,22 @@ class ActorCritic(torch.nn.Module):
         self.relu = torch.nn.ReLU()
         self.flatten = torch.nn.Flatten()
         self.fc1 = torch.nn.Linear(in_features=32*9*9, out_features=fc1_dim)
-        self.out_actor = torch.nn.Linear(in_features=fc1_dim, out_features=out_actor_dim)
-        self.out_critic = torch.nn.Linear(in_features=fc1_dim, out_features=out_critic_dim)
-       
+        self.out_actor = torch.nn.Linear(in_features=lstm_dim, out_features=out_actor_dim)
+        self.out_critic = torch.nn.Linear(in_features=lstm_dim, out_features=out_critic_dim)
+        #lstm cell
+        self.lstm = torch.nn.LSTMCell(fc1_dim, lstm_dim)
         
         self.apply(weights_init)
-        self.out_actor.weight.data = normalized_columns_initializer(
-            self.out_actor.weight.data, 0.01)
+        self.out_actor.weight.data = normalized_columns_initializer(self.out_actor.weight.data, 0.01)
         self.out_actor.bias.data.fill_(0)
-        self.out_critic.weight.data = normalized_columns_initializer(
-            self.out_critic.weight.data, 1.0)
+        self.out_critic.weight.data = normalized_columns_initializer(self.out_critic.weight.data, 1.0)
         self.out_critic.bias.data.fill_(0)
         
         self.train()
-        
+                
 
     def forward(self,x):
+        x, (hx, cx) = x
         out_backbone = self.conv1(x)
         out_backbone = self.relu(out_backbone)
         out_backbone = self.conv2(out_backbone)
@@ -67,7 +67,11 @@ class ActorCritic(torch.nn.Module):
         out = self.fc1(out)
         out = self.relu(out)
         #actor
+        #lstm cell
+        hx, cx = self.lstm(out, (hx, cx))
+        out = hx
+        
         actor = self.out_actor(out)
         #critic
         critic = self.out_critic(out)
-        return actor,critic
+        return actor,critic,(hx, cx)

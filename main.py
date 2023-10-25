@@ -26,6 +26,7 @@ if __name__ == '__main__':
     print('n. of actions: \n', actions)
     actions_name = env.unwrapped.get_action_meanings()
     print('Available actions: \n', actions_name)
+    del env
     
 
     dev = "cpu"
@@ -48,6 +49,7 @@ if __name__ == '__main__':
         'stride3':1,
         #fully_connected dims
         'fc1':256,
+        'lstm_dim':256,
         'out_actor_dim':6, #n_actions
         'out_critic_dim':1,
     }
@@ -82,25 +84,27 @@ if __name__ == '__main__':
         'entropy_coef':0.01,
         'value_coeff':0.5,
         #'rollout_size':20,
-        'rollout_size':80//mp.cpu_count(),
+        'update_size':80,
         'max_steps':1000000,
         'lr':0.0001,
         'n_process': mp.cpu_count()
     }
     
-    
+    #params.update({"rollout_size": params["update_size"] // params["n_process"]})
+    params.update({"rollout_size": 20})
+
     shared_ac = ActorCritic(input_shape=layers_['n_frames'], layer1=layers_['hidden_dim1'], kernel_size1=layers_['kernel_size1'], stride1=layers_['stride1'], layer2=layers_['hidden_dim2'],
                         kernel_size2=layers_['kernel_size2'], stride2=layers_['stride2'], layer3=layers_['hidden_dim3'], kernel_size3=layers_['kernel_size3'], stride3=layers_['stride3'],
-                        fc1_dim=layers_['fc1'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim']) #.to(device)
+                        fc1_dim=layers_['fc1'], lstm_dim=layers_['lstm_dim'], out_actor_dim=layers_['out_actor_dim'], out_critic_dim=layers_['out_critic_dim']) #.to(device)
 
     shared_ac.share_memory()
-    summary(shared_ac, (4, 84, 84))
+    #summary(shared_ac, (4, 84, 84))
     #shared optimizer
     optimizer = SharedAdam(shared_ac.parameters(), lr=params['lr'])
     #optimizer = SharedRMSprop(shared_ac.parameters(), lr=params['lr'])
     optimizer.share_memory()
 
-    processes = []
+    
 
     counter_updates = mp.Value('i', 0)
     counter_test = mp.Value('i', 0)
@@ -114,22 +118,19 @@ if __name__ == '__main__':
     n_processes = params['n_process']
     print('n_processes: ', n_processes)
     print('rollout size: ', params['rollout_size'])
-        
-    #p = mp.Process(target=test, args=(params['n_process'], shared_ac, counter_test, env, params['max_steps'], layers_, actions_name, lock, device))
-    #p.start()
-    #processes.append(p)
+    
+    processes = []
+    #test
+    p = mp.Process(target=test, args=(params['n_process'], shared_ac, counter_test, env_name, params['max_steps'], layers_, actions_name, lock, device))
+    p.start()
+    processes.append(p)
 
+    
+    
     for p_i in range(0, n_processes):
-        p = mp.Process(target=train, args=(p_i, shared_ac, env, params, optimizer,lock, counter_updates, layers_, device, actions_name, shared_ep, shared_r, res_queue, avg_ep, scores, scores_avg))
+        p = mp.Process(target=train, args=(p_i, shared_ac, env_name, params, optimizer,lock, counter_updates, layers_, device, actions_name, shared_ep, shared_r, avg_ep, scores, scores_avg))
         p.start()
         processes.append(p)
-    res = []
-    while True:
-        r = res_queue.get()
-        if r is not None:
-            res.append(r)
-        else:
-            break
     for p in processes:
         p.join()
     #for p in processes:

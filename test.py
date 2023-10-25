@@ -7,8 +7,11 @@ from model import ActorCritic
 import time
 import torch.nn.functional as F
 from IPython.display import display
+import gym
 
-def test(p_i, shared_model, counter, env, max_steps, layers_, actions_name, lock, device):
+def test(p_i, shared_model, counter, env_name, max_steps, layers_, actions_name, lock, device):
+    
+    env = gym.make(env_name)
     seed = 1
     torch.manual_seed(seed + p_i)
     env.seed(seed + p_i)
@@ -48,12 +51,17 @@ def test(p_i, shared_model, counter, env, max_steps, layers_, actions_name, lock
         # Sync with the shared model
         if done:
             model.load_state_dict(shared_model.state_dict())
+            cx = torch.zeros(1, layers_['lstm_dim'])
+            hx = torch.zeros(1, layers_['lstm_dim'])
+        else:
+            cx = cx.detach()
+            hx = hx.detach()
 
         current_state = current_state.unsqueeze(0).permute(0,3,1,2).to(device)
         #print('current_state', current_state.shape)
         with torch.no_grad():
             #compute logits, values and hidden and cell states from the current state
-            logits, value  = model(current_state)
+            logits, value, (hx, cx)  = model((current_state,(hx, cx)))
         #get the most probable action
         probs = F.softmax(logits, dim=-1)
         action = probs.max(1, keepdim=True)[1].numpy()

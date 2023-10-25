@@ -13,7 +13,7 @@ class SharedAdam(torch.optim.Adam):
         for group in self.param_groups:
             for p in group['params']:
                 state = self.state[p]
-                state['step'] = torch.zeros(1)
+                state['step'] = torch.zeros(1)[0]
                 state['exp_avg'] = p.data.new().resize_as_(p.data).zero_()
                 state['exp_avg_sq'] = p.data.new().resize_as_(p.data).zero_()
                 
@@ -87,8 +87,8 @@ class SharedRMSprop(torch.optim.RMSprop):
         for group in self.param_groups:
             for p in group['params']:
                 state = self.state[p]
-                state['step'] = torch.tensor(0, dtype=torch.float32)
-                state['square_avg'] = torch.zeros_like(p.data)
+                state['step'] = torch.zeros(1)
+                state['square_avg'] = p.data.new().resize_as_(p.data).zero_()
                 
     def share_memory(self):
         for group in self.param_groups:
@@ -96,3 +96,38 @@ class SharedRMSprop(torch.optim.RMSprop):
                 state = self.state[p]
                 state['step'].share_memory_()
                 state['square_avg'].share_memory_()
+                
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+        
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad.data
+                state = self.state[p]
+
+                square_avg = state['square_avg']
+                alpha = group['alpha']
+
+                state['step'] += 1
+                
+                if group['weight_decay'] != 0:
+                    grad = grad.add(group['weight_decay'], p.data)
+                
+                # g = αg + (1 - α)Δθ^2
+                #square_avg.mul_(alpha).addcmul_(1 - alpha, grad, grad)
+                # θ ← θ - ηΔθ/√(g + ε)
+                m_ = torch.mul(square_avg, alpha)
+                square_avg = torch.addcmul(m_, grad, grad, value=(1 - alpha))
+                # θ ← θ - ηΔθ/√(g + ε)
+                #avg = square_avg.sqrt().add_(group['eps'])
+                avg = torch.add(torch.sqrt(square_avg), group['eps'])
+                
+                p.data = torch.addcdiv(p.data, grad, avg, value=-group['lr'])
+                
+        return loss      
+                
+                
