@@ -36,8 +36,8 @@ parser.add_argument('--env-name', default='PongNoFrameskip-v4',
                     help='environment to train on (default: PongNoFrameskip-v4)')
 parser.add_argument('--opt', default='adam',
                     help='optimizer to use (default: Adam)')
-parser.add_argument('--use-pre-trained', default='False',
-                    help='training A3C from scratch (default: True)')
+parser.add_argument('--use-pre-trained', type=bool, default=False,
+                    help='training A3C from scratch (default: False)')
 
 if __name__ == '__main__':
     os.environ['OMP_NUM_THREADS'] = '1'
@@ -91,7 +91,6 @@ if __name__ == '__main__':
         'out_actor_dim': actions,
         'out_critic_dim':1,
     }
-    
     if params['use_pre_trained'] == False:
 
         shared_ac = ActorCritic(input_shape=layers_['n_frames'], layer1=layers_['hidden_dim1'], kernel_size1=layers_['kernel_size1'], stride1=layers_['stride1'], layer2=layers_['hidden_dim2'],
