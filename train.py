@@ -18,10 +18,7 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
     
     env = gym.make(params['env_name'])
     env.seed(seed + p_i)
-    env.observation_space.np_random.seed(seed + p_i)
-    env.action_space.np_random.seed(seed + p_i)
     actions_name = env.unwrapped.get_action_meanings()
-    
     
     print(' ----- TRAIN PHASE -----')
     
@@ -34,7 +31,7 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
         optimizer = torch.optim.Adam(shared_model.parameters(), lr=params['lr'])
     
     model.train()
- 
+    
     #reset env
     queue = deque(maxlen=4)
     in_state_i = env.reset()
@@ -56,6 +53,7 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
         if flag_exit.value == 1:
             print(f"Terminating process n. {p_i}...")
             break
+        optimizer.zero_grad()
         #Sync with the shared model
         model.load_state_dict(shared_model.state_dict())
                 
@@ -64,10 +62,15 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
                                                                                   episode_length, actions_name, layers_, tot_rew, scores, lock, avg_ep, scores_avg)
         if flag_finish == True:
             print('Save Model...')
-            torch.save(shared_model,'./saved_model/shared_model.pt')
+            if params['env_name'] == 'PongNoFrameskip-v4':
+                torch.save(shared_model,'./saved_model/shared_model_pong.pt')
+            elif params['env_name'] == 'BreakoutNoFrameskip-v4':
+                torch.save(shared_model, './saved_model/shared_model_break.pt')
             plot_avg_scores(scores_avg, 'Plot AVG Scores')
+            
             with flag_exit.get_lock():
                 flag_exit.value = 1
+            
             break
             
         #compute expected returns
@@ -76,7 +79,6 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
         # compute losses and update parameters
         a3c_loss, value_loss, policy_loss, entropy_loss = update_parameters(probs, log_probs, action_log_probs, advantages, returns, values, params['value_coeff'], params['entropy_coef'])
         
-        optimizer.zero_grad()
         a3c_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), params['max_grad_norm'])
         ensure_shared_grads(model, shared_model)

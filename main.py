@@ -9,6 +9,7 @@ from test import test
 import os
 #from torchsummary import summary
 import time
+import sys
 
 parser = argparse.ArgumentParser(description='A3C')
 
@@ -16,8 +17,6 @@ parser.add_argument('--lr', type=float, default=0.0001,
                     help='learning rate (default: 0.0001)')
 parser.add_argument('--gamma', type=float, default=0.99,
                     help='discount factor for rewards (default: 0.99)')
-parser.add_argument('--gae-lambda', type=float, default=1.00,
-                    help='lambda parameter for GAE (default: 1.00)')
 parser.add_argument('--entropy-coef', type=float, default=0.01,
                     help='entropy term coefficient (default: 0.01)')
 parser.add_argument('--value-loss-coef', type=float, default=0.5,
@@ -36,7 +35,7 @@ parser.add_argument('--env-name', default='PongNoFrameskip-v4',
                     help='environment to train on (default: PongNoFrameskip-v4)')
 parser.add_argument('--opt', default='adam',
                     help='optimizer to use (default: Adam)')
-parser.add_argument('--use-pre-trained', type=bool, default=False,
+parser.add_argument('--use-trained', type=bool, default=False,
                     help='training A3C from scratch (default: False)')
 
 if __name__ == '__main__':
@@ -63,7 +62,6 @@ if __name__ == '__main__':
         'env_name': args.env_name,
         'max_ep_length': args.ep_length,
         'gamma': args.gamma,
-        'lambd':args.gae_lambda,
         'entropy_coef':args.entropy_coef,
         'value_coeff':args.value_loss_coef,
         'lr':args.lr, 
@@ -71,10 +69,16 @@ if __name__ == '__main__':
         'optimizer': args.opt, 
         'max_grad_norm': args.max_grad_norm,
         'rollout_size': args.rs,
-        'mean_reward': 18.0, 
-        'use_pre_trained': args.use_pre_trained
+        'use_pre_trained': args.use_trained
     }
     
+    if params['env_name'] == 'PongNoFrameskip-v4':
+        params.update({'mean_reward': 18.0, })
+    elif params['env_name'] == 'BreakoutNoFrameskip-v4':
+        params.update({'mean_reward': 60.0})
+    else:
+        print('No available env')
+        sys.exit(1)
     #A3C parameters
     layers_ = {
         'n_frames':4,
@@ -100,35 +104,31 @@ if __name__ == '__main__':
         shared_ac.share_memory()
         #shared optimizer
         if params['optimizer'] == 'adam':
-            print('Use Adam Shared optimizer ...')
             optimizer = SharedAdam(shared_ac.parameters(), lr=params['lr'])
             optimizer.share_memory()
         elif params['optimizer'] == 'rmsprop':
-            print('Use RMSprop Shared optimizer ...')
             optimizer = SharedRMSprop(shared_ac.parameters(), lr=params['lr'])
             optimizer.share_memory()
         else:
             optimizer = None
             
         counter_updates = mp.Value('i', 0)
-        counter_test = mp.Value('i', 0)
-        shared_ep, shared_r = mp.Value('i', 0), mp.Value('d', 0.)
         lock = mp.Lock()
         
         avg_ep = mp.Value('i', 0)
         scores = mp.Manager().list()
         scores_avg = mp.Manager().list()
         flag_exit = mp.Value('i', 0)
+        trained = False
 
         n_processes = params['n_process']
+        print('----------- TRAINING INFO ------------')
+        print('Optimizer: ', optimizer)
         print('n_processes: ', n_processes)
         print('rollout size: ', params['rollout_size'])
+        print('--------------------------------------')
         
         processes = []
-        #test
-        #p = mp.Process(target=test, args=(params['n_process'], shared_ac, counter_test, params, params['max_steps'], layers_, lock))
-        #p.start()
-        #processes.append(p)
 
         for p_i in range(0, n_processes):
             p = mp.Process(target=train, args=(p_i, shared_ac, params, optimizer,lock, counter_updates, layers_, avg_ep, scores, scores_avg, flag_exit))
@@ -139,10 +139,21 @@ if __name__ == '__main__':
             p.join()
         for p in processes:
             p.terminate()
+        
+        trained = True
     
     else:
         print('load the model...')
-        shared_ac = torch.load('./saved_model/shared_model.pt')
+        if params['env_name'] == 'PongNoFrameskip-v4':
+            shared_ac = torch.load('./saved_model/shared_model_pong.pt')
+            trained = True
+        elif params['env_name'] == 'BreakoutNoFrameskip-v4':
+            shared_ac = torch.load('./saved_model/shared_model_break.pt')
+            trained = True
+        else:
+            print('No available trained model')
+            sys.exit(1)
         
     #test
-    test(params['n_process'], shared_ac, params, params['max_ep_length'], layers_)
+    if params['use_pre_trained'] == True or trained == True:
+        test(params['n_process'], shared_ac, params, params['max_ep_length'], layers_)

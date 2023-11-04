@@ -15,8 +15,6 @@ def test(p_i, shared_model, params, max_steps, layers_):
     
     env = gym.make(params['env_name'])
     env.seed(seed + p_i)
-    env.observation_space.np_random.seed(seed + p_i)
-    env.action_space.np_random.seed(seed + p_i)
     actions_name = env.unwrapped.get_action_meanings()
     
     print('------ TEST PHASE -------')
@@ -38,7 +36,7 @@ def test(p_i, shared_model, params, max_steps, layers_):
     render = []
     fps = 30
     g_i = 0
-    tot_games = 5
+    tot_games = 3
     
     #start game
     while True:
@@ -73,8 +71,9 @@ def test(p_i, shared_model, params, max_steps, layers_):
             print('-------------------------------------------')
             print(f'Test Game: {g_i}, Score: {tot_reward}, episode_length: {episode_length}')
             print('-------------------------------------------')
+            name = './replay_test'+str(g_i)+'.gif'
+            imageio.mimsave(name, [np.array(img_i) for img_i in render], fps = fps)
             if g_i == tot_games:
-                imageio.mimsave('./replay_test.gif', [np.array(img_i) for img_i in render], fps = fps)
                 break
             tot_reward = 0
             episode_length = 0

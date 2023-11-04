@@ -4,13 +4,9 @@ from utils import *
 
 def compute_log_prob_actions(logits):
     prob_v = F.softmax(logits, dim=-1)
-    log_prob_v = F.log_softmax(logits, dim=-1)
     dist = torch.distributions.Categorical(probs=prob_v)
     action = dist.sample().detach()
-    action_log_probs = log_prob_v.gather(1, action.unsqueeze(1)).squeeze()
-    entropy = -(prob_v * log_prob_v).sum(dim=1)
-    
-    return action.numpy()[0], action_log_probs, entropy
+    return action.numpy()[0]
 
 
 def rollout(p_i, counter, params, model, hx, cx, frame_queue, env, current_state, episode_length, actions_name, layers_, tot_rew, scores, lock, avg_ep, scores_avg):
@@ -34,7 +30,7 @@ def rollout(p_i, counter, params, model, hx, cx, frame_queue, env, current_state
             #compute logits, values and hidden and cell states from the current state
             logits, _ , (hx_, cx_)  = model((current_state,(hx, cx)))
             #get action
-            action, _, _ = compute_log_prob_actions(logits)
+            action = compute_log_prob_actions(logits)
         
         #permorm step in the env
         next_frame, reward, done, _ = skip_frames(action,env,skip_frame=4)
@@ -42,7 +38,7 @@ def rollout(p_i, counter, params, model, hx, cx, frame_queue, env, current_state
         
         states.append(current_state)
         actions.append(action)
-        rewards.append(np.sign(reward))
+        rewards.append(np.sign(reward).astype(np.int8))
         masks.append(done)
         hx_s.append(hx)
         cx_s.append(cx)
@@ -94,8 +90,8 @@ def compute_returns(steps_array, gamma, model):
     R = f_value
     returns  = torch.zeros(len(rewards),1)
     for j in reversed(range(len(rewards))):
-         R = rewards[j] + R * gamma * (1-masks[j])
-         returns[j] = R
+        R = rewards[j] + R * gamma * (1-masks[j])
+        returns[j] = R
     
     #batch of states
     s = torch.concat(states, dim=0)
@@ -110,7 +106,7 @@ def compute_returns(steps_array, gamma, model):
     #gather logprobs with respect the chosen actions
     action_log_probs = log_probs.gather(1, a)
     #advantages
-    advantages = returns - values
+    advantages = returns-values
     
     return probs, log_probs, action_log_probs, advantages, returns, values
     

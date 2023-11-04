@@ -39,11 +39,11 @@ class ActorCritic(torch.nn.Module):
         out_backbone = self.relu(out_backbone)
         out_backbone = self.conv2(out_backbone)
         out_backbone = self.relu(out_backbone)
-        out = out_backbone.view(out_backbone.size(0), -1)
+        #out = out_backbone.view(out_backbone.size(0), -1)
+        out = out_backbone.reshape(-1,32*9*9)
         out = self.fc1(out)
         out = self.relu(out)
         #lstm cell
-        out = out.contiguous()
         hx, cx = self.lstm_cell(out, (hx, cx))
         out = hx
         #actor
