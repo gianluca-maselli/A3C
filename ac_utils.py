@@ -134,7 +134,7 @@ def print_avg(scores, p_i, tot_rew, lock, avg_ep, params, flag_finish, array_avg
     print('\n')
     with lock:
         scores.append([p_i, tot_rew])
-        print('scores', scores)
+        #print('scores', scores)
         all_found = 0
         #check if all process present
         for p_k in range(0, params['n_process']):
