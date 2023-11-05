@@ -43,5 +43,37 @@ opencv-python | 4.6.0
 matplotlib | 3.6.1
 
 ## Usage
+ ```
+usage: main.py [-h] [--lr LR] [--gamma GAMMA] [--entropy-coef ENTROPY_COEF]
+               [--value-loss-coef VALUE_LOSS_COEF]
+               [--max-grad-norm MAX_GRAD_NORM] [--seed SEED] [--rs RS]
+               [--n-workers N_WORKERS] [--ep-length EP_LENGTH]
+               [--env-name ENV_NAME] [--opt OPT] [--use-trained USE_TRAINED]
 
+optional arguments:
+  -h, --help                         show this help message and exit
+  --lr LR                            learning rate (default: 0.0001)
+  --gamma GAMMA                      discount factor for rewards (default: 0.99)
+  --entropy-coef ENTROPY_COEF        entropy term coefficient (default: 0.01)
+  --value-loss-coef VALUE_LOSS_COEF  value loss coefficient (default: 0.5)
+  --max-grad-norm MAX_GRAD_NORM      value to clip the grads (default: 40)
+  --seed SEED                        random seed (default: 1)
+  --rs RS                            rollout size before updating (default: 20)
+  --n-workers N_WORKERS              how many training processes to use (default: os cpus)
+  --ep-length EP_LENGTH              maximum episode length (default: 4e10)
+  --env-name ENV_NAME                environment to train on (default: PongNoFrameskip-v4)
+  --opt OPT                          optimizer to use (default: Adam)
+  --use-trained USE_TRAINED          training A3C from scratch (default: False)
 
+```
+By running: 
+ ```
+python main.py
+```
+The program will be executed with the default parameters, considering a number of workers equal to the available system CPUs. 
+In addition, the A3C will be trained from scratch. To use a pre-trained model it is sufficient to switch the  flag   ```--use-trained=TRUE```.
+
+## Acknowledgement
+The code is inspired by the following implementation:
+1) [A3C-ACER-PyTorch](https://github.com/alirezakazemipour/A3C-ACER-PyTorch) by [alirezakazemipour](https://github.com/alirezakazemipour)
+2) [pytorch-a3c](https://github.com/ikostrikov/pytorch-a3c) by [ikostrikov](https://github.com/ikostrikov)
