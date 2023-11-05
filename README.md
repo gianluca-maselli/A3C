@@ -42,6 +42,9 @@ numpy | 1.23.4
 opencv-python | 4.6.0
 matplotlib | 3.6.1
 
+### Hardware Requirements
+All runs with both 8 and 4 parallel agents were performed on [paperspace](https://www.paperspace.com/)
+
 ## Usage
  ```
 usage: main.py [-h] [--lr LR] [--gamma GAMMA] [--entropy-coef ENTROPY_COEF]
