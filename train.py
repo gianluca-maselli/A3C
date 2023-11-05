@@ -17,7 +17,6 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
     np.random.seed(seed + p_i)
     
     env = gym.make(params['env_name'])
-    env.seed(seed + p_i)
     actions_name = env.unwrapped.get_action_meanings()
     
     print(' ----- TRAIN PHASE -----')
@@ -34,7 +33,7 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
     
     #reset env
     queue = deque(maxlen=4)
-    in_state_i = env.reset()
+    in_state_i = env.reset(seed=(seed + p_i))
     #initialize a queue for each env, preprocess each frame and obtain a vecotr of 84,84,4
     frame_queue = initialize_queue(queue, layers_['n_frames'], in_state_i, env, actions_name)
     #stack the frames together
