@@ -52,6 +52,7 @@ def train(p_i, shared_model, p, optimizer, lock, counter, lys, avg_ep, scores, s
         if flag_exit.value == 1:
             print(f"Terminating process n. {p_i}...")
             break
+        # optimizer.zero_grad(set_to_none=False) necessary for PyTorch Versions >= 2.0.0
         optimizer.zero_grad()
         #Sync with the shared model
         model.load_state_dict(shared_model.state_dict())
